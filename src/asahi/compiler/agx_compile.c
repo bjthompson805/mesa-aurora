@@ -5214,6 +5214,35 @@ agx_lower_agx3_fma_sources(agx_context *ctx)
    if (!agx_isa_is_agx3(ctx->key->dev.encoding))
       return;
 
+   /* FFMAs reading each value, for the AGX3C half register operands below.
+    * Only the AGX3C form of an FFMA reading a plain half register was checked
+    * against exact results, and a wrong guess there would be a wrong result
+    * rather than a slower one. So not on AGX3B, and not on G18G (AGX3C
+    * re-encoded as agx3d): G18G keeps its existing half legalization below,
+    * as the mixed-half form has no such result validation on the re-encoded
+    * path. */
+   const unsigned nr_values = ctx->alloc;
+   unsigned *ffma_reads = NULL;
+   if (ctx->key->dev.encoding == AGX_ISA_ENCODING_AGX3C && !g18g) {
+      ffma_reads = calloc(MAX2(nr_values, 1), sizeof(*ffma_reads));
+      if (ffma_reads) {
+         agx_foreach_instr_global(ctx, I) {
+            if (I->op != AGX_OPCODE_FFMA)
+               continue;
+            /* Count each FFMA once per value, whatever slots it takes. */
+            agx_foreach_ssa_src(I, s) {
+               bool repeat = false;
+               for (unsigned t = 0; t < s; ++t) {
+                  repeat |= I->src[t].type == AGX_INDEX_NORMAL &&
+                            I->src[t].value == I->src[s].value;
+               }
+               if (!repeat)
+                  ffma_reads[I->src[s].value]++;
+            }
+         }
+      }
+   }
+
    agx_foreach_instr_global_safe(ctx, I) {
       if (I->op != AGX_OPCODE_FFMA || I->nr_srcs != 3 || I->saturate)
          continue;
@@ -5245,15 +5274,32 @@ agx_lower_agx3_fma_sources(agx_context *ctx)
       }
 
       agx_builder b = agx_init_builder(ctx, agx_before_instr(I));
-      bool has_full_gpr = false;
+      bool has_full_gpr = false, full_modifier = false;
       unsigned half_uniforms = 0;
       agx_foreach_src(I, s) {
-         has_full_gpr |= (I->src[s].type == AGX_INDEX_NORMAL ||
-                          I->src[s].type == AGX_INDEX_REGISTER) &&
-                         I->src[s].size == AGX_SIZE_32;
+         const bool full_gpr = (I->src[s].type == AGX_INDEX_NORMAL ||
+                                I->src[s].type == AGX_INDEX_REGISTER) &&
+                               I->src[s].size == AGX_SIZE_32;
+         has_full_gpr |= full_gpr;
+         /* A register or uniform: either takes the all-F32 modifier form */
+         full_modifier |= I->src[s].type != AGX_INDEX_IMMEDIATE &&
+                          I->src[s].type != AGX_INDEX_NULL &&
+                          I->src[s].size == AGX_SIZE_32 &&
+                          (I->src[s].abs || I->src[s].neg);
          half_uniforms += I->src[s].type == AGX_INDEX_UNIFORM &&
                           I->src[s].size == AGX_SIZE_16;
       }
+      /* An AGX3C FFMA reads a half register in its own typed operand slot and
+       * widens it exactly, for either destination size. Keep a half value
+       * that several FFMAs read in its half register: its widened copy would
+       * occupy a full register for all of them. A value one FFMA reads stays
+       * widened, as the move issues off the FFMA's dependency chain and an
+       * FFMA on a half register is slower than one on full registers. A
+       * modifier on a 32-bit register or uniform operand still takes the
+       * all-F32 form: kept halves would make it a mixed FFMA, whose modifiers
+       * cost a move and a bitop each below.
+       */
+      const bool native_half_gpr = ffma_reads && !full_modifier;
       agx_foreach_src(I, s) {
          if (I->src[s].size != AGX_SIZE_16 ||
              I->src[s].type == AGX_INDEX_IMMEDIATE ||
@@ -5263,6 +5309,9 @@ agx_lower_agx3_fma_sources(agx_context *ctx)
          if (I->nr_dests == 1 && I->dest[0].size == AGX_SIZE_32 &&
              agx_channels(I->dest[0]) == 1 && has_full_gpr &&
              half_uniforms == 1 && I->src[s].type == AGX_INDEX_UNIFORM)
+            continue;
+         if (native_half_gpr && I->src[s].type == AGX_INDEX_NORMAL &&
+             I->src[s].value < nr_values && ffma_reads[I->src[s].value] >= 2)
             continue;
 
          agx_index widened = agx_temp(ctx, AGX_SIZE_32);
@@ -5358,6 +5407,8 @@ agx_lower_agx3_fma_sources(agx_context *ctx)
          I->src[s] = source;
       }
    }
+
+   free(ffma_reads);
 }
 
 static agx_index
