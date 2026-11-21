@@ -1885,7 +1885,7 @@ hk_m5_empty_tile_layout_supported(const struct agx_tilebuffer_layout *tib)
 static bool
 hk_m5_color_imageblock_supported(const struct agx_tilebuffer_layout *tib)
 {
-   if (!hk_m5_has_color(tib) || tib->layered || agx_tilebuffer_spills(tib) ||
+   if (!hk_m5_has_color(tib) || agx_tilebuffer_spills(tib) ||
        !tib->sample_size_B || (tib->sample_size_B & 7) ||
        tib->sample_size_B > 248)
       return false;
@@ -3306,9 +3306,8 @@ hk_g17p_elide_untouched_color(struct hk_cmd_buffer *cmd, struct hk_cs *cs)
    struct hk_device *dev = hk_cmd_buffer_device(cmd);
    struct hk_rendering_state *render = &cmd->state.gfx.render;
    const bool m5 = agx_chip_g17_m5(dev->dev.chip);
-   /* The rebuilt programs may drop every colour store; M5 has an empty
-    * end-of-tile program only for single-layer, non-spilling colour tiles
-    * (hk_build_m5_empty_bg_eot()), multisampled ones included. */
+   /* The rebuilt programs may drop every colour store; check that M5 can
+    * emit an empty end-of-tile program for this colour tile allocation. */
    if ((dev->dev.chip != AGX_CHIP_G17P && !m5) ||
        cs != render->zls_first_cs || cmd->in_meta || render->color_read ||
        render->view_mask || render->layer_count > 1 ||
