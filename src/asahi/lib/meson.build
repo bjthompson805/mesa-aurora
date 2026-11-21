@@ -674,3 +674,9 @@ if with_tests
     c_args: ['-UNDEBUG'],
     include_directories: include_directories('.')), suite: ['asahi'])
 endif
+
+# Local FreeBSD M5 bring-up tool (m5-freebsd branch).
+executable('m5_store_job', '../m5job/m5_store_job.c',
+  include_directories: [inc_include, inc_src, inc_asahi],
+  dependencies: [idep_mesautil, idep_nir, idep_agx_opcodes_h],
+  link_with: [libasahi_compiler, libasahi_lib])
