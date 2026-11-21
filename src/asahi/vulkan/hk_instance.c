@@ -120,8 +120,12 @@ hk_CreateInstance(const VkInstanceCreateInfo *pCreateInfo,
 
    hk_init_dri_options(instance);
 
+#ifdef __FreeBSD__
+   instance->vk.physical_devices.enumerate = hk_enumerate_freebsd_devices;
+#else
    instance->vk.physical_devices.try_create_for_drm =
       hk_create_drm_physical_device;
+#endif
    instance->vk.physical_devices.destroy = hk_physical_device_destroy;
 
    const struct build_id_note *note =

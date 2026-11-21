@@ -43,10 +43,16 @@
 #include "vk_shader_module.h"
 
 #include <fcntl.h>
+#ifdef __FreeBSD__
+#include <glob.h>
+#endif
 #include <string.h>
 #include <xf86drm.h>
 #include <sys/stat.h>
+#include <sys/types.h>
+#ifdef __linux__
 #include <sys/sysmacros.h>
+#endif
 
 static uint32_t
 hk_get_vk_version()
@@ -1868,7 +1874,12 @@ hk_get_device_properties(const struct agx_device *dev,
  * code or serialized objects is part of the cache identity, not only the bits
  * hk_physical_device_compiler_flags() packs. Variables that only print or pick
  * a runtime path are excluded so tracing keeps a warm cache. */
+#ifdef __FreeBSD__
+/* FreeBSD defines environ in the executable's startup code. */
+extern char **environ __attribute__((weak, visibility("default")));
+#else
 extern char **environ;
+#endif
 static int
 hk_env_cmp(const void *a, const void *b)
 {
@@ -1885,7 +1896,12 @@ hk_codegen_env_hash(void)
    };
    const char *list[512];
    unsigned n = 0;
-   for (char **e = environ; e && *e && n < ARRAY_SIZE(list); ++e) {
+#ifdef __FreeBSD__
+   char **env = &environ ? environ : NULL;
+#else
+   char **env = environ;
+#endif
+   for (char **e = env; e && *e && n < ARRAY_SIZE(list); ++e) {
       if (strncmp(*e, "AGX_", 4) && strncmp(*e, "HK_", 3) &&
           strncmp(*e, "ASAHI_", 6))
          continue;
@@ -2133,19 +2149,14 @@ hk_get_sysmem_heap_available(struct hk_physical_device *pdev)
    return total_used < pdev->sysmem ? pdev->sysmem - total_used : 0;
 }
 
-VkResult
-hk_create_drm_physical_device(struct vk_instance *_instance,
-                              drmDevicePtr drm_device,
-                              struct vk_physical_device **pdev_out)
+static VkResult
+hk_create_physical_device_for_path(struct vk_instance *_instance,
+                                   const char *path,
+                                   struct vk_physical_device **pdev_out)
 {
    struct hk_instance *instance = (struct hk_instance *)_instance;
    VkResult result;
 
-   if (!(drm_device->available_nodes & (1 << DRM_NODE_RENDER)) ||
-       drm_device->bustype != DRM_BUS_PLATFORM)
-      return VK_ERROR_INCOMPATIBLE_DRIVER;
-
-   const char *path = drm_device->nodes[DRM_NODE_RENDER];
    int fd = open(path, O_RDWR | O_CLOEXEC);
    if (fd < 0) {
       return vk_errorf(instance, VK_ERROR_INCOMPATIBLE_DRIVER,
@@ -2171,10 +2182,9 @@ hk_create_drm_physical_device(struct vk_instance *_instance,
    }
 
    struct stat st;
-   if (stat(drm_device->nodes[DRM_NODE_RENDER], &st)) {
+   if (fstat(fd, &st)) {
       result = vk_errorf(instance, VK_ERROR_INITIALIZATION_FAILED,
-                         "fstat() failed on %s: %m",
-                         drm_device->nodes[DRM_NODE_RENDER]);
+                         "fstat() failed on %s: %m", path);
       goto fail_fd;
    }
    const dev_t render_dev = st.st_rdev;
@@ -2193,7 +2203,13 @@ hk_create_drm_physical_device(struct vk_instance *_instance,
    pdev->render_dev = render_dev;
    pdev->dev.fd = fd;
 
-   if (!agx_open_device(NULL, &pdev->dev)) {
+#ifdef __FreeBSD__
+   /* The kernel has one VM. Reserve it when opening a logical device. */
+   bool opened = agx_probe_device(&pdev->dev);
+#else
+   bool opened = agx_open_device(NULL, &pdev->dev);
+#endif
+   if (!opened) {
       /* Fail silently, for virtgpu */
       result = VK_ERROR_INCOMPATIBLE_DRIVER;
       goto fail_pdev_alloc;
@@ -2484,16 +2500,63 @@ fail_disk_cache:
    hk_physical_device_free_disk_cache(pdev);
    vk_physical_device_finish(&pdev->vk);
 fail_agx_device:
+#ifndef __FreeBSD__
    agx_close_device(&pdev->dev);
+   fd = -1;
+#endif
 fail_pdev_alloc:
-   if (pdev->master_fd)
+   if (pdev->master_fd >= 0)
       close(pdev->master_fd);
 
    vk_free(&instance->vk.alloc, pdev);
 fail_fd:
-   close(fd);
+   if (fd >= 0)
+      close(fd);
    return result;
 }
+
+#ifdef __FreeBSD__
+VkResult
+hk_enumerate_freebsd_devices(struct vk_instance *instance)
+{
+   /* libdrm's FreeBSD PCI lookup can miss platform render nodes. */
+   glob_t nodes = {0};
+   int ret = glob("/dev/dri/renderD[0-9]*", 0, NULL, &nodes);
+   if (ret != 0) {
+      globfree(&nodes);
+      return ret == GLOB_NOSPACE ? VK_ERROR_OUT_OF_HOST_MEMORY : VK_SUCCESS;
+   }
+
+   VkResult result = VK_SUCCESS;
+   for (size_t i = 0; i < nodes.gl_pathc; ++i) {
+      struct vk_physical_device *pdev;
+      result = hk_create_physical_device_for_path(instance, nodes.gl_pathv[i],
+                                                  &pdev);
+      if (result == VK_ERROR_INCOMPATIBLE_DRIVER) {
+         result = VK_SUCCESS;
+         continue;
+      }
+      if (result != VK_SUCCESS)
+         break;
+      list_addtail(&pdev->link, &instance->physical_devices.list);
+   }
+   globfree(&nodes);
+   return result;
+}
+#else
+VkResult
+hk_create_drm_physical_device(struct vk_instance *instance,
+                              drmDevicePtr drm_device,
+                              struct vk_physical_device **pdev_out)
+{
+   if (!(drm_device->available_nodes & (1 << DRM_NODE_RENDER)) ||
+       drm_device->bustype != DRM_BUS_PLATFORM)
+      return VK_ERROR_INCOMPATIBLE_DRIVER;
+
+   return hk_create_physical_device_for_path(
+      instance, drm_device->nodes[DRM_NODE_RENDER], pdev_out);
+}
+#endif
 
 void
 hk_physical_device_destroy(struct vk_physical_device *vk_pdev)
@@ -2509,7 +2572,11 @@ hk_physical_device_destroy(struct vk_physical_device *vk_pdev)
    simple_mtx_destroy(&pdev->debug_compile_lock);
    hk_heap_usage_put(pdev->heap_usage);
    hk_physical_device_free_disk_cache(pdev);
+#ifdef __FreeBSD__
+   close(pdev->dev.fd);
+#else
    agx_close_device(&pdev->dev);
+#endif
    vk_physical_device_finish(&pdev->vk);
    vk_free(&pdev->vk.instance->alloc, pdev);
 }

@@ -513,6 +513,9 @@ agx_va_in_usc_window(const struct agx_device *dev, uint64_t addr)
 
 /* The caller retains its fd on failure; common close owns it on success. */
 bool agx_open_device(void *memctx, struct agx_device *dev);
+#ifdef __FreeBSD__
+bool agx_probe_device(struct agx_device *dev);
+#endif
 
 void agx_close_device(struct agx_device *dev);
 

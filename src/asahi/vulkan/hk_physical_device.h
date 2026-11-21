@@ -103,9 +103,13 @@ hk_physical_device_instance(struct hk_physical_device *pdev)
    return (struct hk_instance *)pdev->vk.instance;
 }
 
+#ifdef __FreeBSD__
+VkResult hk_enumerate_freebsd_devices(struct vk_instance *instance);
+#else
 VkResult hk_create_drm_physical_device(struct vk_instance *vk_instance,
                                        struct _drmDevice *drm_device,
                                        struct vk_physical_device **pdev_out);
+#endif
 
 void hk_physical_device_destroy(struct vk_physical_device *vk_device);
 

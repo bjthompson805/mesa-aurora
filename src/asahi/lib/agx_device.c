@@ -985,8 +985,8 @@ agx_cleanup_partial_device(struct agx_device *dev, unsigned initialized)
    }
 }
 
-bool
-agx_open_device(void *memctx, struct agx_device *dev)
+static bool
+agx_open_device_internal(struct agx_device *dev, bool probe_only)
 {
    unsigned initialized = 0;
 
@@ -1334,6 +1334,10 @@ agx_open_device(void *memctx, struct agx_device *dev)
                              vm_create.kernel_start);
    uint64_t user_size = user_limit - user_start;
 
+   agx_init_timestamps(dev);
+   if (probe_only)
+      return true;
+
    int ret = dev->ops.simple_ioctl(dev, DRM_IOCTL_ASAHI_VM_CREATE, &vm_create);
    if (ret) {
       fprintf(stderr, "DRM_IOCTL_ASAHI_VM_CREATE failed: %m\n");
@@ -1341,8 +1345,6 @@ agx_open_device(void *memctx, struct agx_device *dev)
    }
 
    dev->agxdecode = agxdecode_new_context(dev->shader_base);
-
-   agx_init_timestamps(dev);
 
    util_sparse_array_init(&dev->bo_map, sizeof(struct agx_bo), 512);
    simple_mtx_init(&dev->bo_map_lock, mtx_plain);
@@ -1642,6 +1644,20 @@ fail:
    agx_cleanup_partial_device(dev, initialized);
    return false;
 }
+
+bool
+agx_open_device(void *memctx, struct agx_device *dev)
+{
+   return agx_open_device_internal(dev, false);
+}
+
+#ifdef __FreeBSD__
+bool
+agx_probe_device(struct agx_device *dev)
+{
+   return agx_open_device_internal(dev, true);
+}
+#endif
 
 void
 agx_close_device(struct agx_device *dev)

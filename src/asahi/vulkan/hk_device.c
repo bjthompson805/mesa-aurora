@@ -52,6 +52,10 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <fcntl.h>
+#ifdef __FreeBSD__
+#include <sys/param.h>
+#include <sys/stat.h>
+#endif
 #include <xf86drm.h>
 
 static bool
@@ -1090,6 +1094,15 @@ hk_CreateDevice(VkPhysicalDevice physicalDevice,
    if (dev->host_alias.trace)
       hk_device_trace_alias_reasons(dev, instance);
 
+#ifdef __FreeBSD__
+   char node[SPECNAMELEN], path[sizeof("/dev/") + sizeof(node)];
+   if (!devname_r(pdev->render_dev, S_IFCHR, node, sizeof(node))) {
+      result = vk_errorf(dev, VK_ERROR_INITIALIZATION_FAILED,
+                         "Failed to resolve DRM device node");
+      goto fail_init;
+   }
+   snprintf(path, sizeof(path), "/dev/%s", node);
+#else
    drmDevicePtr drm_device = NULL;
    int ret = drmGetDeviceFromDevId(pdev->render_dev, 0, &drm_device);
    if (ret != 0) {
@@ -1099,11 +1112,14 @@ hk_CreateDevice(VkPhysicalDevice physicalDevice,
    }
 
    const char *path = drm_device->nodes[DRM_NODE_RENDER];
+#endif
    dev->dev.fd = open(path, O_RDWR | O_CLOEXEC);
    if (dev->dev.fd < 0) {
       result = vk_errorf(dev, VK_ERROR_INITIALIZATION_FAILED,
                          "failed to open device %s", path);
+#ifndef __FreeBSD__
       drmFreeDevice(&drm_device);
+#endif
       goto fail_init;
    }
 
@@ -1131,7 +1147,9 @@ hk_CreateDevice(VkPhysicalDevice physicalDevice,
    assert(pdev->mem_heap_count == 1);
    dev->dev.bo_cache.size_counter = pdev->mem_heaps[0].cached;
    bool succ = agx_open_device(NULL, &dev->dev);
+#ifndef __FreeBSD__
    drmFreeDevice(&drm_device);
+#endif
    if (!succ) {
       result = vk_errorf(dev, VK_ERROR_INITIALIZATION_FAILED,
                          "Failed to get DRM device: %m");
