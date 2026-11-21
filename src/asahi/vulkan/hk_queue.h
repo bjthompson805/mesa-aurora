@@ -70,6 +70,10 @@ struct hk_queue {
     * Sparse image remaps submit this record before their signal operations. */
    struct agx_bo *g17p_sstt_flush_bo;
 
+   /* Lazy command storage for an ordered end-stamp carrier when a leading
+    * TOP_OF_PIPE timestamp cannot safely ride on the first command's start. */
+   struct agx_bo *g17p_ts_carrier_bo;
+
    /* Kinds of streams this queue has ever run, see hk_sync.h. */
    struct hk_sync_queue sync;
 

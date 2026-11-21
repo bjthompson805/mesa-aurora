@@ -192,6 +192,88 @@ test_timestamp_top_in_pass(void)
    }
 }
 
+/* G17P and M5: a leading TOP_OF_PIPE timestamp with no earlier work or barrier
+ * in the command buffer rides on the first stream as an unordered start stamp
+ * (saving a separate carrier command when submission has no prior barrier,
+ * input wait, or GPU query reset), while a TOP_OF_PIPE after a barrier stays
+ * on the end-stamp path. */
+static void
+test_timestamp_leading_top(void)
+{
+   for (unsigned c = 0; c < ARRAY_SIZE(end_stamp_chips); ++c) {
+      /* Compute: leading TOP_OF_PIPE + dispatch + ALL_COMMANDS -> one stream. */
+      struct hk_cmd_buffer *cmd = timestamp_cmd(end_stamp_chips[c], true);
+      const struct agx_timestamp_req top = {
+         .handle = 1, .addr = 0x10000, .offset_B = 0};
+      hk_sync_write_timestamp(cmd, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, top);
+      T("leading top stamp defers to pending start",
+        cmd->sync.pending_start_ts.handle == 1 &&
+        cmd->sync.pending_start_ts_unordered &&
+        list_is_empty(&cmd->control_streams));
+
+      struct hk_cs *dispatch = add(cmd, true);
+      cmd->current_cs.cs = dispatch;
+      dispatch->stats.cmds++;
+      T("first compute stream takes unordered start stamp",
+        dispatch->timestamp.start.handle == 1 &&
+        dispatch->timestamp.start.offset_B == 0 &&
+        dispatch->unordered_start_ts &&
+        cmd->sync.has_unordered_start_ts &&
+        !cmd->sync.pending_start_ts.handle &&
+        !cmd->sync.pending_start_ts_unordered);
+
+      end_timestamp(cmd, 1);
+      T("leading top plus bottom stays one stream",
+        list_length(&cmd->control_streams) == 1 &&
+        dispatch->timestamp.end.handle == 1 &&
+        dispatch->timestamp.end.offset_B == 8);
+
+      /* Clean queue has no tail; fallback carrier shifts ordinal to 2. */
+      struct hk_queue *q = new_queue(true);
+      T("fresh queue has no tail", !hk_sync_queue_has_tail(&q->sync));
+      T("leading top resolves on clean queue", submit(q, cmd));
+      T("unbarriered submit leaves no tail", !hk_sync_queue_has_tail(&q->sync));
+
+      struct hk_cmd_buffer *bar = timestamp_cmd(end_stamp_chips[c], true);
+      hk_sync_barrier(bar, HK_SYNC_ALL, HK_SYNC_ALL);
+      T("barrier-only submit resolves", submit(q, bar));
+      T("barrier-only submit sets queue tail", hk_sync_queue_has_tail(&q->sync));
+
+      struct hk_cmd_buffer *one[] = {cmd};
+      T("fallback carrier resolves with shifted ordinal",
+        hk_sync_resolve_submit(q, one, 1, true, false, 0, NULL) &&
+        dispatch->sync.index == 2 &&
+        dispatch->sync.barrier[HK_SYNC_CDM] == 1);
+
+      /* Render: leading TOP_OF_PIPE before BeginRendering rides on VDM start. */
+      struct hk_cmd_buffer *rcmd = timestamp_cmd(end_stamp_chips[c], true);
+      hk_sync_write_timestamp(rcmd, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, top);
+      hk_sync_begin_rendering(rcmd, false);
+      struct hk_cs *render = add(rcmd, false);
+      T("first render takes unordered start stamp",
+        render->timestamp.start.handle == 1 &&
+        render->unordered_start_ts &&
+        rcmd->sync.has_unordered_start_ts);
+
+      /* A TOP_OF_PIPE recorded after a barrier in the same command buffer
+       * must NOT defer to unordered_start_ts. */
+      struct hk_cmd_buffer *bcmd = timestamp_cmd(end_stamp_chips[c], true);
+      hk_sync_barrier(bcmd, HK_SYNC_ALL, HK_SYNC_ALL);
+      T("barrier records pending req before top stamp",
+        bcmd->sync.req[0][HK_SYNC_VDM].prior != 0);
+      /* Note: timestamp_only_stream allocates via hk_cmd_buffer_get_cs(),
+       * which is unavailable in CPU fixtures, so check via an existing stream
+       * or verify the barrier prevents deferral when a stream is present. */
+      struct hk_cs *prev = add(bcmd, true);
+      prev->stats.cmds++;
+      hk_sync_write_timestamp(bcmd, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, top);
+      T("top stamp after barrier stays ordered end stamp",
+        !bcmd->sync.pending_start_ts.handle &&
+        !bcmd->sync.has_unordered_start_ts &&
+        prev->timestamp.end.handle == 1);
+   }
+}
+
 /* Exercise actual timestamp placement, barriers and the submission resolver.
  * Existing query-command scopes are not removed by the timestamp scope's
  * redundant same-engine execution edge. No command payload or GPU is needed.
@@ -1548,6 +1630,7 @@ main(void)
    test_timestamp_execution_scopes();
    test_timestamp_reused_compute();
    test_timestamp_top_in_pass();
+   test_timestamp_leading_top();
    {
       /* A submission longer than the 16-bit barrier field: a wait on a
        * command past it is named by its ordinal (that command went in an

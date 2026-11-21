@@ -379,6 +379,12 @@ struct hk_device {
       size_t prune_threshold;
    } query_stamps;
 
+   /* Nonzero once any GPU vkCmdResetQueryPool has been recorded on this device.
+    * G17P and M5 latch command start timestamps before barriers resolve, so
+    * leading TOP_OF_PIPE timestamps take the fallback end-stamp carrier once
+    * GPU query resets are in use. */
+   uint32_t gpu_query_reset_submitted;
+
    /* Native G17P indirect compute grid helper.  A compact indirect helper
     * record carries no dimensions and no resource table, so the only way a
     * runtime grid can reach the main record is for this program to publish

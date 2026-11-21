@@ -352,8 +352,13 @@ struct hk_sync_state {
    } xfer_clean;
 
    /* A top-of-pipe timestamp waiting for the next stream to carry it as its
-    * start timestamp. */
+    * start timestamp. pending_start_ts_unordered marks a leading stamp on a
+    * chip whose start stamps latch before barriers resolve (G17P, M5):
+    * queue submission keeps it on the command's start when nothing precedes
+    * it, and otherwise moves it to an ordered end-stamp carrier. */
    struct agx_timestamp_req pending_start_ts;
+   bool pending_start_ts_unordered;
+   bool has_unordered_start_ts;
 
    /* Tile hazards: attachment footprints of the open pass instance and
     * the latest earlier render stream it shares a tile with. The command
@@ -563,3 +568,15 @@ bool hk_sync_resolve_submit(struct hk_queue *queue,
 uint8_t hk_sync_queue_kinds(const struct hk_sync_queue *q, unsigned sq);
 uint8_t hk_sync_cmd_kinds(const struct hk_cmd_buffer *cmd, unsigned sq);
 void hk_sync_load_resolved(struct hk_cs *cs, const struct hk_sync_resolved *r);
+
+static inline bool
+hk_sync_queue_has_tail(const struct hk_sync_queue *q)
+{
+   for (unsigned k = 0; k < HK_SYNC_NUM_KINDS; ++k) {
+      for (unsigned sq = 0; sq < HK_SYNC_NUM_SQ; ++sq) {
+         if (q->tail[k][sq])
+            return true;
+      }
+   }
+   return false;
+}
