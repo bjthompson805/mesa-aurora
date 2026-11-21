@@ -450,11 +450,19 @@ os_get_available_system_memory(uint64_t *size)
    if (sysctl(mib, 2, &mem_available, &len, NULL, 0) == -1)
       return false;
 
+#if DETECT_OS_FREEBSD
+   /* FreeBSD's RLIMIT_DATA bounds only the brk heap, not mmap: GPU memory
+    * and malloc's own mappings are outside it, and the arm64 default is
+    * 1 GiB, which would make every "fits in free memory" check fail. */
+   (void)rl;
+   *size = mem_available;
+#else
    /* static login.conf limit */
    if (getrlimit(RLIMIT_DATA, &rl) == -1)
       return false;
 
    *size = MIN2(mem_available, rl.rlim_cur);
+#endif
    return true;
 #elif DETECT_OS_WINDOWS
    MEMORYSTATUSEX status;
