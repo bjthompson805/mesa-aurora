@@ -11602,8 +11602,12 @@ hk_flush_dynamic_state_slow(struct hk_cmd_buffer *cmd, struct hk_cs *cs,
              * bound) set tail[0]; task kicks with the native record do too,
              * with or without the grid at +0 (the buffer stays bound).
              * Payload-free task kicks without it keep the mesh-only value. */
+            /* tail[0] is the per-task record size in KiB: on J815 the
+             * hardware hands out payload slots 1 KiB apart with the
+             * captured value 1, so larger records overlapped. */
             if (task && hk_m5_task_record(dev->dev.params.features))
-               state.raw_tail[0] = 1;
+               state.raw_tail[0] = MAX2(1, DIV_ROUND_UP(
+                  object->info.mesh.payload_size_B, 1024));
          }
          if (!agx_vdm_mesh_state_pack(dev->dev.chip, &state, out)) {
             vk_command_buffer_set_error(&cmd->vk, VK_ERROR_FEATURE_NOT_PRESENT);

@@ -7590,6 +7590,10 @@ hk_compile_shader_impl(struct hk_device *dev, struct vk_shader_compile_info *inf
        * taskShader is advertised only with the kernel's task mesh storage
        * (hk_m5_task_record). */
       hk_m5_task_predicate(nir);
+      /* The native record: the child grid at +0 and the payload from +16,
+       * or the payload alone at +0 (agx_nir_lower_m5_task). */
+      const unsigned record_B = ALIGN_POT(nir->info.task_payload_size, 16) +
+                                (m5_no_grid_record ? 0 : 16);
       if ((dev->dev.chip != AGX_CHIP_G17G &&
            dev->dev.chip != AGX_CHIP_G17S) ||
           !agx_nir_lower_m5_task(nir,
@@ -7617,6 +7621,7 @@ hk_compile_shader_impl(struct hk_device *dev, struct vk_shader_compile_info *inf
          obj->variants[0].info.mesh.reads_num_workgroups =
             mesh_reads_num_workgroups;
          obj->variants[0].info.mesh.m5_no_grid_record = m5_no_grid_record;
+         obj->variants[0].info.mesh.payload_size_B = record_B;
       }
    } else if (sw_stage == MESA_SHADER_GEOMETRY) {
       struct hk_shader *main_variant = hk_main_gs_variant(obj);
