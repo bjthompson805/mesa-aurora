@@ -9586,6 +9586,18 @@ hk_flush_ppp_state(struct hk_cmd_buffer *cmd, struct hk_cs *cs, uint8_t **out)
                                 v->maxDepth >= 0 && v->maxDepth <= 1;
       }
 
+      if (getenv("AGX_CF_DEBUG") && cf && uvs)
+         fprintf(stderr, "HK_VARY: color %u general %u system %u none %u "
+                 "counts_32 %08x counts_16 %08x user %u clip %u size %u "
+                 "groups %u/%u/%u/%u/%u osel %08x nr_cf %u bindings %u\n",
+                 color_varying, general_varyings, system_varyings, no_varyings,
+                 gfx->linked_varyings.counts_32.opaque[0],
+                 gfx->linked_varyings.counts_16.opaque[0], components,
+                 clip_words, uvs->size, uvs->group_offs[UVS_POSITION],
+                 uvs->group_offs[UVS_VARYINGS], uvs->group_offs[UVS_PSIZ],
+                 uvs->group_offs[UVS_LAYER_VIEWPORT],
+                 uvs->group_offs[UVS_CLIP_DIST], uvs->osel.opaque[0],
+                 cf->nr_cf, cf->nr_bindings);
       if (!hw_vs || !fs || !linked ||
           (!no_varyings && !system_varyings && !color_varying &&
            !general_varyings) ||

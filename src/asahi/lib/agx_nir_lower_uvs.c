@@ -1,3 +1,5 @@
+#include <stdio.h>
+#include <stdlib.h>
 /*
  * Copyright 2024 Valve Corporation
  * SPDX-License-Identifier: MIT
@@ -590,5 +592,22 @@ agx_link_varyings_vs_fs(void *out, struct agx_varyings_vs *vs,
          assert(cfg.base_coefficient_register + cfg.components <= fs->nr_cf &&
                 "overflowed coefficient registers");
       }
+      /* AGX_CF_DEBUG=1: the linked coefficient bindings. */
+      static int cf_debug = -1;
+      if (cf_debug < 0)
+         cf_debug = getenv("AGX_CF_DEBUG") != NULL;
+      if (cf_debug) {
+         fprintf(stderr, "AGX_CF binding %u: slot %u offset %u count %u cf %u "
+                 "smooth %u persp %u vs_index %u -> %08x %08x\n", i, b.slot,
+                 b.offset, b.count, b.cf_base, b.smooth, b.perspective,
+                 b.slot < VARYING_SLOT_MAX ? vs->slots[b.slot] : 0,
+                 bindings[i].opaque[0]);
+      }
    }
+   if (getenv("AGX_CF_DEBUG"))
+      fprintf(stderr, "AGX_CF header: %u slots (user base %u, %u user), %u cf, "
+              "vs CLIP_DIST0 %u CULL_PRIMITIVE %u/%u\n", nr_slots, user_base,
+              nr_user_indices, fs->nr_cf, vs->slots[VARYING_SLOT_CLIP_DIST0],
+              vs->slots[VARYING_SLOT_CULL_PRIMITIVE],
+              vs->slots[VARYING_SLOT_CULL_PRIMITIVE + 1]);
 }
