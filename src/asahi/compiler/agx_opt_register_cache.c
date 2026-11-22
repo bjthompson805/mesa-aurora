@@ -220,8 +220,18 @@ agx_opt_register_cache(agx_context *ctx)
             /* If the register dead after this instruction, it's the last use.
              * That includes if the register is overwritten this cycle, but that
              * won't show up in the liveness analysis.
+             *
+             * Check every half: a discard drops the whole source, so a 32-bit
+             * read whose low half is overwritten while its high half is still
+             * read later is not a last use. The redundant-copy removal above
+             * creates exactly that (a 16-bit constant reused from the high
+             * half of a 32-bit one), and discarding it zeroed the reused
+             * half: the two-plane cull-distance prolog then culled everything.
              */
-            bool lu = !BITSET_TEST_COUNT(live, reg, nr) || writes_reg(I, reg);
+            bool lu = true;
+            for (unsigned c = 0; c < nr; ++c) {
+               lu &= !BITSET_TEST(live, reg + c) || writes_reg(I, reg + c);
+            }
 
             /* Handling divergent blocks would require physical CFG awareness.
              * Just bail for now, skipping this pass won't affect correctness.
