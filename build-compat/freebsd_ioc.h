@@ -7,4 +7,9 @@
 #define _IOC_NR(x)   ((x) & 0xff)
 #define _IOC_SIZE(x) IOCPARM_LEN(x)
 #endif
+/* No CLOCK_MONOTONIC_RAW on FreeBSD: CLOCK_MONOTONIC_PRECISE (11), a
+ * distinct monotonic clock id (switches over clock ids need one). */
+#ifndef CLOCK_MONOTONIC_RAW
+#define CLOCK_MONOTONIC_RAW 11
+#endif
 #endif
