@@ -5293,6 +5293,7 @@ void nir_validate_shader(nir_shader *shader, const char *when);
 void nir_validate_ssa_dominance(nir_shader *shader, const char *when);
 void nir_metadata_set_validation_flag(nir_shader *shader);
 void nir_metadata_check_validation_flag(nir_shader *shader);
+void nir_metadata_check_validation_flag_when(nir_shader *shader, const char *when);
 void nir_metadata_require_most(nir_shader *shader);
 struct blob nir_validate_progress_setup(nir_shader *shader);
 void nir_validate_progress_finish(nir_shader *shader, struct blob *setup_blob, bool progress, const char *when);
@@ -5346,6 +5347,12 @@ static inline void
 nir_metadata_check_validation_flag(nir_shader *shader)
 {
    (void)shader;
+}
+static inline void
+nir_metadata_check_validation_flag_when(nir_shader *shader, const char *when)
+{
+   (void)shader;
+   (void)when;
 }
 static inline void
 nir_metadata_require_most(nir_shader *shader)
@@ -5424,7 +5431,7 @@ extern simple_mtx_t nir_print_lock;
             printf("%s (finished)\n", #pass);                                            \
          nir_print_shader_dbg(nir, stdout);                                              \
       }                                                                                  \
-      nir_metadata_check_validation_flag(nir);                                           \
+      nir_metadata_check_validation_flag_when(nir, when);                                \
       nir_validate_progress_finish(nir, &blob_before, true, when);                       \
    } else {                                                                              \
       if (NIR_DEBUG(EXTENDED_VALIDATION))                                                \

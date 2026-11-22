@@ -181,6 +181,17 @@ nir_metadata_check_validation_flag(nir_shader *shader)
    }
 }
 
+/* As nir_metadata_check_validation_flag(), naming the pass that failed. */
+void
+nir_metadata_check_validation_flag_when(nir_shader *shader, const char *when)
+{
+   nir_foreach_function_impl(impl, shader) {
+      if (impl->valid_metadata & nir_metadata_not_properly_reset)
+         fprintf(stderr, "NIR: metadata not reset %s\n", when);
+   }
+   nir_metadata_check_validation_flag(shader);
+}
+
 void
 nir_metadata_require_most(nir_shader *shader)
 {

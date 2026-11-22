@@ -107,7 +107,8 @@ agx_nir_m5_canonicalize_empty_mesh(nir_shader *s)
    /* No geometry reaches rasterization. Keep the shader's memory work and
     * use the existing native triangle launch for the proven-empty output. */
    s->info.mesh.primitive_type = MESA_PRIM_TRIANGLES;
-   return true;
+   /* Only the shader info changed: every analysis still holds. */
+   return nir_progress(true, impl, nir_metadata_all);
 }
 
 #define M5_MESH_MAX_PLANES (4 + 128 + 1 + 8)
