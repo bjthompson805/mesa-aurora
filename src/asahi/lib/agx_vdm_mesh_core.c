@@ -8,7 +8,9 @@
 static bool
 supported(enum agx_chip chip)
 {
-   return chip == AGX_CHIP_G17S || chip == AGX_CHIP_G17P;
+   /* G17G shares the M5 family's VDM mesh encodings with G17S. */
+   return chip == AGX_CHIP_G17G || chip == AGX_CHIP_G17S ||
+          chip == AGX_CHIP_G17P;
 }
 bool
 agx_vdm_mesh_threadgroup_pack(const uint32_t size[3], uint32_t *word)

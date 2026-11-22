@@ -2269,7 +2269,9 @@ hk_create_physical_device_for_path(struct vk_instance *_instance,
    supported_extensions.EXT_primitives_generated_query =
       agx_chip_g17_m5(pdev->dev.chip) || pdev->dev.chip == AGX_CHIP_G17P;
 
-   supported_extensions.EXT_mesh_shader = pdev->dev.chip == AGX_CHIP_G17S &&
+   /* Native mesh shading on the M5 GPUs; task shaders stay G17S-only. */
+   supported_extensions.EXT_mesh_shader =
+      (pdev->dev.chip == AGX_CHIP_G17G || pdev->dev.chip == AGX_CHIP_G17S) &&
       (pdev->dev.params.features & DRM_ASAHI_FEATURE_RENDER_RESOURCES_V2);
 
    /* Gen5 adds native component-wise minimum/maximum sampler reduction. */

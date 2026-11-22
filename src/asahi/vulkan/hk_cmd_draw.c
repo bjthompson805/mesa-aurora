@@ -11587,6 +11587,7 @@ hk_flush_dynamic_state_slow(struct hk_cmd_buffer *cmd, struct hk_cs *cs,
           * Threadgroup memory is allocated separately by the shader program.
           */
          if (dev->dev.chip == AGX_CHIP_G17P ||
+             dev->dev.chip == AGX_CHIP_G17G ||
              dev->dev.chip == AGX_CHIP_G17S) {
             if (!agx_vdm_m5_mesh_set_output_limits(
                    &state, hw_vs->info.mesh.max_vertices,
@@ -13372,7 +13373,7 @@ hk_draw_mesh_native(struct hk_cmd_buffer *cmd, uint64_t grid,
    if (!gfx->shaders[MESA_SHADER_MESH] ||
        (task_api && !sw_task && dev->dev.chip != AGX_CHIP_G17S) ||
        (dev->dev.chip != AGX_CHIP_G17P &&
-        (dev->dev.chip != AGX_CHIP_G17S ||
+        ((dev->dev.chip != AGX_CHIP_G17G && dev->dev.chip != AGX_CHIP_G17S) ||
          !(dev->dev.params.features & DRM_ASAHI_FEATURE_RENDER_RESOURCES_V2)))) {
       vk_command_buffer_set_error(&cmd->vk, VK_ERROR_FEATURE_NOT_PRESENT);
       return;
