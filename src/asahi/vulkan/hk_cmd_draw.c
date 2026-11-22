@@ -11596,7 +11596,8 @@ hk_flush_dynamic_state_slow(struct hk_cmd_buffer *cmd, struct hk_cs *cs,
                return;
             }
          }
-         if (dev->dev.chip == AGX_CHIP_G17S) {
+         if (dev->dev.chip == AGX_CHIP_G17G ||
+             dev->dev.chip == AGX_CHIP_G17S) {
             /* Native object->mesh kicks (native726 mesh-object, 0x1ca48
              * bound) set tail[0]; task kicks with the native record do too,
              * with or without the grid at +0 (the buffer stays bound).
@@ -13371,7 +13372,8 @@ hk_draw_mesh_native(struct hk_cmd_buffer *cmd, uint64_t grid,
    struct hk_api_shader *task_api = gfx->shaders[MESA_SHADER_TASK];
    const bool sw_task = task_api && dev->dev.chip == AGX_CHIP_G17P;
    if (!gfx->shaders[MESA_SHADER_MESH] ||
-       (task_api && !sw_task && dev->dev.chip != AGX_CHIP_G17S) ||
+       (task_api && !sw_task && dev->dev.chip != AGX_CHIP_G17G &&
+        dev->dev.chip != AGX_CHIP_G17S) ||
        (dev->dev.chip != AGX_CHIP_G17P &&
         ((dev->dev.chip != AGX_CHIP_G17G && dev->dev.chip != AGX_CHIP_G17S) ||
          !(dev->dev.params.features & DRM_ASAHI_FEATURE_RENDER_RESOURCES_V2)))) {

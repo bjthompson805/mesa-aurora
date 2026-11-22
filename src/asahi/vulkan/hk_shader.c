@@ -7590,7 +7590,8 @@ hk_compile_shader_impl(struct hk_device *dev, struct vk_shader_compile_info *inf
        * taskShader is advertised only with the kernel's task mesh storage
        * (hk_m5_task_record). */
       hk_m5_task_predicate(nir);
-      if (dev->dev.chip != AGX_CHIP_G17S ||
+      if ((dev->dev.chip != AGX_CHIP_G17G &&
+           dev->dev.chip != AGX_CHIP_G17S) ||
           !agx_nir_lower_m5_task(nir,
               hk_m5_task_payload_limit(dev->dev.params.features),
               hk_m5_task_record(dev->dev.params.features) &&
@@ -8181,7 +8182,7 @@ static bool
 hk_m5_no_grid_record(const struct hk_device *dev, uint32_t shader_count,
                      const struct vk_shader_compile_info *infos)
 {
-   if (dev->dev.chip != AGX_CHIP_G17S ||
+   if ((dev->dev.chip != AGX_CHIP_G17G && dev->dev.chip != AGX_CHIP_G17S) ||
        !hk_m5_task_record(dev->dev.params.features))
       return false;
    const struct vk_shader_compile_info *task = NULL, *mesh = NULL;

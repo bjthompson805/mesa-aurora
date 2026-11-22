@@ -360,7 +360,8 @@ hk_get_device_features(
       
       .taskShader = supported_extensions->EXT_mesh_shader &&
                     (dev->chip == AGX_CHIP_G17P ||
-                     (dev->chip == AGX_CHIP_G17S &&
+                     ((dev->chip == AGX_CHIP_G17G ||
+                       dev->chip == AGX_CHIP_G17S) &&
                       hk_m5_task_record(dev->params.features))),
       .meshShader = supported_extensions->EXT_mesh_shader,
       /* G17P replays a multiview mesh draw per view, as other draws. */

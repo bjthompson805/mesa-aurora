@@ -3501,7 +3501,9 @@ hk_upload_native_mesh_program(struct hk_cmd_buffer *cmd, struct hk_shader *s,
    size_t count = 0;
    /* An API task shader is a compiled object program with the ordinary
     * driver-root/descriptor ranges and its own threadgroup memory. */
-   const bool task_object = object && task && dev->dev.chip == AGX_CHIP_G17S &&
+   const bool task_object = object && task &&
+                            (dev->dev.chip == AGX_CHIP_G17G ||
+                             dev->dev.chip == AGX_CHIP_G17S) &&
                             s->info.stage == MESA_SHADER_TASK;
    if (task_object) {
       if (!hk_g17p_graphics_uniform_ranges(cmd, s, linked,
