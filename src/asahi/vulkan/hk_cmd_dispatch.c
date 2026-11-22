@@ -1791,12 +1791,19 @@ hk_dispatch_precomp_m5(struct hk_cmd_buffer *cmd, struct agx_grid grid,
    cs->stats.cmds++;
 }
 
+/* Refuse an M5 launch, recording which check refused it. */
+#define HK_M5_REFUSE()                                                         \
+   do {                                                                        \
+      refused_line = __LINE__;                                                 \
+      goto refused;                                                            \
+   } while (0)
 
 __attribute__((hot)) void
 hk_dispatch_m5_native(struct hk_cmd_buffer *cmd, struct hk_cs *cs,
                       struct hk_shader *s, struct agx_grid grid,
                       struct agx_workgroup local_size)
 {
+   unsigned refused_line;
    struct hk_device *dev = hk_cmd_buffer_device(cmd);
    struct hk_linked_shader *linked = s ? s->only_linked : NULL;
    if (s && !linked && s->info.stage == MESA_SHADER_VERTEX)
@@ -1812,19 +1819,19 @@ hk_dispatch_m5_native(struct hk_cmd_buffer *cmd, struct hk_cs *cs,
        !local_size.x || !local_size.y || !local_size.z ||
        (uint64_t)local_size.x * local_size.y * local_size.z >
           dev->vk.physical->properties.maxComputeWorkGroupInvocations)
-      goto refused;
+      HK_M5_REFUSE();
    if (!agx_is_indirect(grid) &&
        (!grid.count[0] || !grid.count[1] || !grid.count[2]))
       return;
 
    if (s->b.info.uses_matrix16) {
       if (!(dev->dev.params.features & DRM_ASAHI_FEATURE_COMPUTE_MATRIX))
-         goto refused;
+         HK_M5_REFUSE();
       cs->m5_matrix_ops = true;
    }
    const bool internal = s->info.stage != MESA_SHADER_COMPUTE;
    if (internal && s->info.stage != MESA_SHADER_VERTEX && s->data_size)
-      goto refused;
+      HK_M5_REFUSE();
    if (!internal) {
       cmd->state.cs.descriptors.root.cs.constant_data_addr = s->data_size
          ? hk_pool_upload(cmd, s->data_ptr, s->data_size, HK_MIN_UBO_ALIGNMENT) : 0;
@@ -1838,21 +1845,21 @@ hk_dispatch_m5_native(struct hk_cmd_buffer *cmd, struct hk_cs *cs,
    const uint64_t texture_pointers = s->info.agx3_indexed_sampler_valid
       ? dev->rodata.indexed_heap_pointers : 0;
    if (s->info.agx3_indexed_sampler_valid && !texture_pointers)
-      goto refused;
+      HK_M5_REFUSE();
    struct agx3_ioto_uniform_range ranges[HK_G17P_COMPUTE_MAX_RANGES];
    size_t count = 0;
    const bool collected = internal
       ? hk_g17p_internal_graphics_uniform_ranges(cmd, s, linked, root, texture_pointers, ranges, &count)
       : hk_g17p_compute_uniform_ranges(dev->dev.chip, cmd, s, root, texture_pointers, ranges, &count);
    if (!collected)
-      goto refused;
+      HK_M5_REFUSE();
    if (!internal && s->b.info.agx3_uniform_dma_count &&
        !hk_m5_compute_uniform_dma_ranges(cmd, s, root, ranges,
                                          ARRAY_SIZE(ranges), &count))
-      goto refused;
+      HK_M5_REFUSE();
    size_t capacity;
    if (!agx3_g17g_graphics_program_bound(dev->dev.chip, ranges, count, &capacity))
-      goto refused;
+      HK_M5_REFUSE();
    if (s->b.info.has_preamble)
       capacity = AGX3_G17P_GRAPHICS_PROGRAM_MAX_SIZE;
    struct hk_ioto_reservation reservation;
@@ -1880,7 +1887,7 @@ hk_dispatch_m5_native(struct hk_cmd_buffer *cmd, struct hk_cs *cs,
              s->code_ptr, s->code_size, s->b.info.preamble_offset,
              s->b.info.preamble_size, hk_shader_code_va(s),
              s->b.info.binary_size, &desc.constant_program))
-         goto refused;
+         HK_M5_REFUSE();
       desc.constant_program.force_external = true;
       desc.constant_program.absolute_branch = true;
       desc.constant_program.request_prelude = s->b.info.agx3_preamble_uniform_inputs;
@@ -1904,15 +1911,15 @@ hk_dispatch_m5_native(struct hk_cmd_buffer *cmd, struct hk_cs *cs,
              fresh.length != program.length ||
              memcmp(fresh.bytes, program.bytes, program.length)) {
             mesa_loge("M5 cached compute launch differs from fresh composition");
-            goto refused;
+            HK_M5_REFUSE();
          }
       }
    } else if (!agx3_g17g_compute_program_generate(dev->dev.chip, &desc, &program)) {
-      goto refused;
+      HK_M5_REFUSE();
    }
    if (!agx3_cdm_direct_template_sources_compute(s->b.info.uses_resource_info_query,
                                                  false, false, &launch_desc.launch_sources))
-      goto refused;
+      HK_M5_REFUSE();
    /* A constant program's TPS frame is the launch's thread-invariant spill
     * buffer (word 1 bits 3..20): the loader publishes the CProg's inputs to
     * TPS from half 8 and the CProg's RLDs read them back from that frame.
@@ -1929,7 +1936,7 @@ hk_dispatch_m5_native(struct hk_cmd_buffer *cmd, struct hk_cs *cs,
          MAX2(launch_desc.launch_sources.ti_spill_bytes, cprog_frame);
    }
    if (!agx3_m5_native_compute_program_bind(dev->dev.chip, &launch_desc, &launch))
-      goto refused;
+      HK_M5_REFUSE();
    memcpy(reservation.map, program.bytes, program.length);
    if (!hk_cmd_publish_ioto_program(cmd, &reservation, program.length))
       return;
@@ -1969,7 +1976,7 @@ hk_dispatch_m5_native(struct hk_cmd_buffer *cmd, struct hk_cs *cs,
       };
       if (!agx3_m5_native_compute_dispatch_append(&launch, &tmpl, 0, &capture) ||
           capture.length != AGX3_G17P_NATIVE_COMPUTE_DISPATCH_SIZE)
-         goto refused;
+         HK_M5_REFUSE();
       cmd->m5_rt_captured = true;
       hk_m5_compute_resources(cs, desc.scratch_size, 0,
                               desc.threadgroup_memory_size_B,
@@ -2003,7 +2010,7 @@ hk_dispatch_m5_native(struct hk_cmd_buffer *cmd, struct hk_cs *cs,
            grid.mode == AGX_CDM_MODE_INDIRECT_GLOBAL ? local : NULL, 0, &sink)
       : agx3_m5_native_compute_dispatch_append(&launch, &direct, 0, &sink);
    if (!appended)
-      goto refused;
+      HK_M5_REFUSE();
    cs->current = (uint32_t *)((uint8_t *)cs->current + sink.length);
    cs->weak_barrier_end = cs->current;
    cs->app_dispatch_end = app_dispatch ? cs->current : NULL;
@@ -2013,9 +2020,12 @@ hk_dispatch_m5_native(struct hk_cmd_buffer *cmd, struct hk_cs *cs,
    cs->stats.cmds++;
    return;
 refused:
-   mesa_loge_once("M5 compute launch exceeds the current resource profile");
+   mesa_loge_once("M5 compute launch exceeds the current resource profile "
+                  "(refused at hk_cmd_dispatch.c:%u)", refused_line);
    vk_command_buffer_set_error(&cmd->vk, VK_ERROR_FEATURE_NOT_PRESENT);
 }
+
+#undef HK_M5_REFUSE
 
 void
 hk_dispatch_g17p_native(struct hk_cmd_buffer *cmd, struct hk_cs *cs,
