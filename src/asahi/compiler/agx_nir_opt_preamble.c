@@ -1002,6 +1002,16 @@ agx_nir_opt_preamble(nir_shader *nir, unsigned *sizes, bool g17p,
       options.instr_cost_cb = agx3c ? instr_cost : instr_cost_g17p;
       options.rewrite_cost_cb = agx3c ? rewrite_cost_agx3c : rewrite_cost_g17p;
    }
+   /* Experiment: a fragment shader's uniform file is reloaded for every
+    * draw on every tile it covers, so cap what its preamble may hoist
+    * (halves; AGX_FS_PREAMBLE_HALVES, default the generic budget). */
+   if (nir->info.stage == MESA_SHADER_FRAGMENT) {
+      const char *cap = getenv("AGX_FS_PREAMBLE_HALVES");
+      if (cap != NULL)
+         options.preamble_storage_size[nir_preamble_class_general] =
+            MIN2(options.preamble_storage_size[nir_preamble_class_general],
+                 (unsigned)atoi(cap));
+   }
    /* Every AGX3B chip: the uniform file it fills is the encoding's. */
    struct set *branches = NULL;
    if (g17p && !agx3c) {

@@ -2272,7 +2272,11 @@ queue_submit_recordings(struct hk_device *dev, struct hk_queue *queue,
       }
    }
 
-   if (dev->dev.debug & AGX_DBG_TRACE) {
+   /* asynctrace tracks the BOs; it decodes while the trigger file exists,
+    * to capture a few frames of a running application. */
+   if ((dev->dev.debug & AGX_DBG_TRACE) ||
+       ((dev->dev.debug & AGX_DBG_ASYNCTRACE) &&
+        access("/tmp/hk-trace", F_OK) == 0)) {
       agxdecode_drm_cmdbuf(dev->dev.agxdecode, &dev->dev.params, &payload,
                            true);
 
