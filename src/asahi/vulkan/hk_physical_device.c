@@ -1124,9 +1124,11 @@ hk_get_device_properties(const struct agx_device *dev,
 {
    const unsigned descriptor_generation =
       agx_chip_descriptor_generation(dev->chip);
+   /* M5 buffer views take G17P's path (hk_buffer_view.c): the texel tail
+    * goes into the view's metadata and the shader adds it. */
    const bool texel_buffer_single_texel_alignment =
       hk_descriptor_generation_is_agx2(descriptor_generation) ||
-      agx_chip_native_agx3(dev->chip);
+      agx_chip_native_agx3(dev->chip) || agx_chip_g17_m5(dev->chip);
    /* G17P: what agx_nir_lower_gen1_mesh accepts and the CTS runs there
     * (misc.maximize_invocations_256); no larger mesh workgroup was run. */
    const uint32_t mesh_threads = dev->chip == AGX_CHIP_G17P ? 256 : 1024;
